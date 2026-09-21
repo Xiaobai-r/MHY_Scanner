@@ -13,6 +13,8 @@
 #include <d3d11.h>
 #include <dxgi1_2.h>
 
+#include "ScreenPixelConverter.hpp"
+
 #pragma comment(lib, "d3d11.lib")
 
 void qrLog(const std::string& msg);
@@ -269,7 +271,13 @@ public:
         return 0;
     }
 
-    bool copyFrameToBuffer(BYTE** buffer, long bufferSize)
+    bool copyFrameToBuffer(
+        BYTE** buffer,
+        long bufferSize,
+        int& imageWidth,
+        int& imageHeight,
+        int convertedWidth,
+        int convertedHeight)
     {
         if (!m_AcquiredDesktopImage || !buffer || !*buffer)
         {
@@ -283,10 +291,11 @@ public:
             return false;
         }
 
+        D3D11_TEXTURE2D_DESC desc{};
+        m_AcquiredDesktopImage->GetDesc(&desc);
+
         if (!m_AcquiredDesktopImage_copy)
         {
-            D3D11_TEXTURE2D_DESC desc;
-            m_AcquiredDesktopImage->GetDesc(&desc);
             qrLog("staging desc: " + std::to_string(desc.Width) + "x" + std::to_string(desc.Height) + " fmt=" + std::to_string((int)desc.Format));
             // Create CPU access texture m_AcquiredDesktopImage_copy
             D3D11_TEXTURE2D_DESC copyImageDesc{};
@@ -335,26 +344,50 @@ public:
             qrLog("map rowPitch=" + std::to_string((long)mapRes.RowPitch) + " first8=" + first);
         }
 
-        // RowPitch 通常大于 width*4（行对齐填充），必须按行拷贝。
-        BYTE* dptr = *buffer;
-        const UINT rowBytes = m_stagingWidth * 4;
-        const size_t required = static_cast<size_t>(rowBytes) * m_stagingHeight;
-        if (mapRes.RowPitch < rowBytes || static_cast<size_t>(bufferSize) < required)
+        bool copied{};
+        if (desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT)
         {
-            qrLog("copy size mismatch rowPitch=" + std::to_string((long)mapRes.RowPitch) +
-                  " rowBytes=" + std::to_string(rowBytes) +
-                  " bufferSize=" + std::to_string(bufferSize));
-            context->Unmap(m_AcquiredDesktopImage_copy, subresource);
-            return false;
+            imageWidth = convertedWidth;
+            imageHeight = convertedHeight;
+            copied = ConvertRgba16FloatToBgra8(
+                static_cast<const std::byte*>(mapRes.pData),
+                mapRes.RowPitch,
+                desc.Width,
+                desc.Height,
+                *buffer,
+                static_cast<std::size_t>(bufferSize),
+                static_cast<std::uint32_t>(convertedWidth),
+                static_cast<std::uint32_t>(convertedHeight));
         }
-        const BYTE* sptr = static_cast<const BYTE*>(mapRes.pData);
-        for (UINT y = 0; y < m_stagingHeight; ++y)
+        else if (desc.Format == DXGI_FORMAT_B8G8R8A8_UNORM ||
+            desc.Format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)
         {
-            memcpy_s(dptr + static_cast<size_t>(y) * rowBytes, rowBytes,
-                     sptr + static_cast<size_t>(y) * mapRes.RowPitch, rowBytes);
+            imageWidth = static_cast<int>(desc.Width);
+            imageHeight = static_cast<int>(desc.Height);
+            const std::size_t rowBytes = static_cast<std::size_t>(desc.Width) * 4;
+            const std::size_t required = rowBytes * desc.Height;
+            copied = mapRes.RowPitch >= rowBytes &&
+                static_cast<std::size_t>(bufferSize) >= required;
+            if (copied)
+            {
+                const BYTE* source = static_cast<const BYTE*>(mapRes.pData);
+                for (UINT y = 0; y < desc.Height; ++y)
+                {
+                    memcpy_s(
+                        *buffer + static_cast<std::size_t>(y) * rowBytes,
+                        rowBytes,
+                        source + static_cast<std::size_t>(y) * mapRes.RowPitch,
+                        rowBytes);
+                }
+            }
         }
+        else
+        {
+            qrLog("unsupported capture format=" + std::to_string(static_cast<int>(desc.Format)));
+        }
+
         context->Unmap(m_AcquiredDesktopImage_copy, subresource);
-        return true;
+        return copied;
     }
 
     bool doneWithFrame()

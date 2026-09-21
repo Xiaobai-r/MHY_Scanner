@@ -88,14 +88,17 @@ void QRCodeForScreen::LoginOfficial()
         cv::Mat img;
         if (frameResult == 0)
         {
-            if (!screenshotdxgi.copyFrameToBuffer(&mBuffer, mBufferSize))
+            int imageWidth{};
+            int imageHeight{};
+            if (!screenshotdxgi.copyFrameToBuffer(
+                    &mBuffer, mBufferSize, imageWidth, imageHeight, 1280, 720))
             {
                 qrLog("copyFrameToBuffer failed");
                 screenshotdxgi.doneWithFrame();
                 std::this_thread::sleep_for(std::chrono::milliseconds(DELAYED));
                 continue;
             }
-            cv::resize(cv::Mat(h, w, CV_8UC4, mBuffer), img, { 1280, 720 });
+            cv::resize(cv::Mat(imageHeight, imageWidth, CV_8UC4, mBuffer), img, { 1280, 720 });
             lastGoodFrame = img;
             ++frameCount;
             if (frameCount <= 5)
@@ -214,14 +217,17 @@ void QRCodeForScreen::LoginBH3BiliBili()
         cv::Mat img;
         if (frameResult == 0)
         {
-            if (!screenshotdxgi.copyFrameToBuffer(&mBuffer, mBufferSize))
+            int imageWidth{};
+            int imageHeight{};
+            if (!screenshotdxgi.copyFrameToBuffer(
+                    &mBuffer, mBufferSize, imageWidth, imageHeight, 1280, 720))
             {
                 qrLog("copyFrameToBuffer failed");
                 screenshotdxgi.doneWithFrame();
                 std::this_thread::sleep_for(std::chrono::milliseconds(DELAYED));
                 continue;
             }
-            cv::resize(cv::Mat(h, w, CV_8UC4, mBuffer), img, { 1280, 720 });
+            cv::resize(cv::Mat(imageHeight, imageWidth, CV_8UC4, mBuffer), img, { 1280, 720 });
             lastGoodFrame = img;
             ++frameCount;
             if (frameCount <= 5)
